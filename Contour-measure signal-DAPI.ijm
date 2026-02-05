@@ -1,0 +1,92 @@
+// 1- Scale the file : scaling size of pixels in real life
+// 2- Subtract the background
+// 3- Threshold the image
+// 4- Define measurements
+// 5- Measure intensity
+
+// tidy up screen
+Tstart = getTime();
+if (nImages > 0) run("Close All");
+if (isOpen("Results")) { selectWindow("Results"); close("Results"); }
+print("\\Clear");
+roiManager("reset");
+run("Options...", "iterations=1 count=1 black edm=32-bit");
+
+// helper: keep only tif/tiff
+function filterImages(list) {
+    good = newArray();
+    for (j = 0; j < list.length; j++) {
+        name = list[j];
+        if (endsWith(name, ".tif") || endsWith(name, ".tiff")) good = Array.concat(good, name);
+    }
+    return good;
+}
+
+// file opening
+setBatchMode(1);
+openfolder1 = getDirectory("Choose your channel of interest file");
+openfolder2 = getDirectory("Choose where DAPI is");
+openfolder3 = getDirectory("Choose where your outline is");
+
+ListArray1 = filterImages(getFileList(openfolder1));
+ListArray2 = filterImages(getFileList(openfolder2));
+ListArray3 = filterImages(getFileList(openfolder3));
+
+print("Number of processed files", ListArray1.length, openfolder1);
+print("Number of processed files", ListArray2.length, openfolder2);
+print("Number of processed files", ListArray3.length, openfolder3);
+
+// Validate equal counts
+if (ListArray1.length != ListArray2.length || ListArray1.length != ListArray3.length) {
+    exit("Error: Folders have different numbers of image files!");
+}
+
+for (i = 0; i < ListArray1.length; i++) {
+
+    // outline
+    filename3 = ListArray3[i];
+    open(openfolder3 + filename3);
+    if (nImages == 0) exit("Could not open outline: " + filename3);
+    run("Subtract Background...", "rolling=500");
+    setAutoThreshold("Triangle dark");
+    run("Create Selection");
+    run("ROI Manager...");
+    roiManager("Add");
+
+    // channel of interest
+    filename1 = ListArray1[i];
+    open(openfolder1 + filename1);
+    if (nImages == 0) exit("Could not open channel: " + filename1);
+    run("16-bit");
+    run("Subtract Background...", "rolling=1000");
+    setOption("ScaleConversions", true);
+    run("Set Scale...", "distance=1 known=0.325 unit=um");
+    setAutoThreshold("Triangle dark");
+    roiManager("Select", 0);
+    run("Set Measurements...", "area mean integrated area_fraction limit display redirect=None decimal=2");
+    run("Measure");
+
+    // DAPI
+    filename2 = ListArray2[i];
+    open(openfolder2 + filename2);
+    if (nImages == 0) exit("Could not open DAPI: " + filename2);
+    run("Subtract Background...", "rolling=300");
+    setOption("ScaleConversions", true);
+    run("Set Scale...", "distance=1 known=0.325 unit=um");
+    setAutoThreshold("Triangle dark");
+    setOption("BlackBackground", true);
+    run("Convert to Mask");
+    run("Watershed");
+    run("Analyze Particles...", "size=50-5000 circularity=0.10-1.00 summarize overlay add");
+    Nucnumber = roiManager("count") - 1; // subtract outline ROI
+    setResult("cell number", nResults - 1, Nucnumber);
+
+    updateResults();
+    close("*");
+    roiManager("reset");
+}
+
+roiManager("reset");
+close("*");
+selectWindow("Results");
+saveAs("text");
